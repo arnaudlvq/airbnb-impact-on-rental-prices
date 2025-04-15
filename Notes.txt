@@ -16,3 +16,7 @@ Ensuite, on lit les données de locations depuis paris_rentals.csv. Les coordonn
 Chaque point de location est ensuite associé au quartier dans lequel il se situe grâce à une jointure spatiale. Cela permet de savoir à quel polygone chaque point appartient.
 On regroupe ensuite les données par quartier pour calculer le prix moyen de location au mètre carré dans chaque zone.
 Enfin, on affiche une carte de Paris où chaque quartier est coloré selon son prix moyen, ce qui permet de visualiser les différences de loyers sur l’ensemble du territoire.
+
+
+
+

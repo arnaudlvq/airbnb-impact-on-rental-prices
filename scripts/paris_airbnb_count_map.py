@@ -7,9 +7,6 @@ import json
 # --------------
 # 1. Load Neighborhoods
 # --------------
-# Assume "paris_neighborhoods.csv" has:
-#   - A neighborhood identifier in the first column (e.g. "Numéro du quartier")
-#   - A column "geo_shape" holding the GeoJSON-like polygon geometry as a string.
 df_neigh = pd.read_csv("../data/paris_neighborhoods.csv", encoding='utf-8')
 
 # Function to convert a GeoJSON string to a Shapely geometry
@@ -27,13 +24,10 @@ gdf_neigh = gpd.GeoDataFrame(df_neigh, geometry='geometry', crs="EPSG:4326")
 # --------------
 # 2. Load Airbnb Listings
 # --------------
-# Assume "paris_airbnb.csv" uses semicolon as the delimiter.
-# We expect that:
-#   - Latitude is in column 6
-#   - Longitude is in column 7
 df_airbnb = pd.read_csv("../data/paris_airbnb.csv", delimiter=',', on_bad_lines='skip', encoding='utf-8')
+print(f"Original Airbnb data rows: {len(df_airbnb)}")
 
-# (Optional) Print DataFrame shape and columns for debugging:
+# Print DataFrame shape and columns for debugging:
 print("Airbnb DataFrame shape:", df_airbnb.shape)
 print("Airbnb columns:", list(df_airbnb.columns))
 
@@ -60,33 +54,49 @@ gdf_airbnb = gpd.GeoDataFrame(df_airbnb, geometry='geometry', crs="EPSG:4326")
 # --------------
 # 3. Point in Polygon (Spatial Join)
 # --------------
-# Each Airbnb listing (point) is assigned the attributes of the neighborhood (polygon) in which it falls.
 gdf_join = gpd.sjoin(gdf_airbnb, gdf_neigh, how='left', predicate='within')
 
 # --------------
 # 4. Count Airbnb Listings per Neighborhood
 # --------------
-# We assume the neighborhood identifier is in the first column of paris_neighborhoods.csv.
-# For clarity, let’s assign this column a name. If it's not already named, you might rename it.
 neigh_id_col = gdf_neigh.columns[0]  # assuming first column contains the neighborhood identifier
+neigh_name_col = None
+
+# Try to find a column with neighborhood names (helpful for display)
+potential_name_cols = ['nom', 'name', 'n_q', 'nom_quartier', 'nom_qu', 'libelle', 'l_qu']
+for col in potential_name_cols:
+    if col in gdf_neigh.columns:
+        neigh_name_col = col
+        break
 
 # Group by the neighborhood identifier and count the number of listings.
 counts = gdf_join.groupby(neigh_id_col).size().reset_index(name="airbnb_count")
 
 # Merge these counts back into the neighborhoods GeoDataFrame.
 gdf_neigh = gdf_neigh.merge(counts, on=neigh_id_col, how='left')
-gdf_neigh['airbnb_count'] = gdf_neigh['airbnb_count'].fillna(0)
+gdf_neigh['airbnb_count'] = gdf_neigh['airbnb_count'].fillna(0).astype(int)
+
+# Print the total count of Airbnb listings
+total_airbnbs = len(gdf_airbnb)
+print(f"Total number of Airbnb listings in Paris: {total_airbnbs}")
 
 # --------------
 # 5. Visualization
 # --------------
-fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-# Plot the neighborhoods colored by the number of Airbnb listings.
-gdf_neigh.plot(column='airbnb_count', cmap='OrRd', legend=True, ax=ax, edgecolor='black')
-# Overlay the Airbnb points.
-#gdf_airbnb.plot(ax=ax, color='blue', markersize=5, alpha=0.5)
+# Calculate area in square kilometers and density
+gdf_neigh['area_km2'] = gdf_neigh.geometry.to_crs('EPSG:3857').area / 1_000_000
+gdf_neigh['density'] = gdf_neigh['airbnb_count'] / gdf_neigh['area_km2']
 
-ax.set_title("Airbnb Listings by Neighborhood in Paris")
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
+# Create a plot showing density
+fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+gdf_neigh.plot(column='density', cmap='OrRd', legend=True, ax=ax, edgecolor='black')
+ax.set_title("Airbnb Density (listings per km²) by Neighborhood in Paris")
+
+
+
 plt.show()
+
+# Print summary of the densities
+print("\nTop 5 neighborhoods by Airbnb density:")
+density_cols = [neigh_id_col, 'airbnb_count', 'area_km2', 'density']
+print(gdf_neigh.sort_values('density', ascending=False).head(5)[density_cols])
