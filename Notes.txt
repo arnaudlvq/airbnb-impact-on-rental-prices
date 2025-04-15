@@ -1,0 +1,4 @@
+1) Paris
+
+in the file showing rental market price, i have the geojson of 80 regions inside paris. which is plenty to have more accuracy on data (on reserve that i have sufficient datapoints per area).
+If not the case I will use the arrondissement geojson, and get a coarser grid details.
