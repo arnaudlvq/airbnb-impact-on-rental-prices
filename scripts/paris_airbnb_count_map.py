@@ -10,7 +10,7 @@ import json
 # Assume "paris_neighborhoods.csv" has:
 #   - A neighborhood identifier in the first column (e.g. "Numéro du quartier")
 #   - A column "geo_shape" holding the GeoJSON-like polygon geometry as a string.
-df_neigh = pd.read_csv("paris_neighborhoods.csv", encoding='utf-8')
+df_neigh = pd.read_csv("../data/paris_neighborhoods.csv", encoding='utf-8')
 
 # Function to convert a GeoJSON string to a Shapely geometry
 def convert_geojson(geo_str):
