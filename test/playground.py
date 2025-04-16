@@ -3,272 +3,208 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from shapely.geometry import shape, Point
+from shapely.geometry import Point
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_validate, KFold
 import seaborn as sns
-from scipy.stats import pearsonr
 
-# =============================================================================
-# STEP 0: Load Rentals Data (Always Needed)
-# =============================================================================
-df_rentals_initial = pd.read_csv("../data/paris_rentals.csv", 
-                                 delimiter=';', 
-                                 on_bad_lines='skip', 
-                                 encoding='utf-8')
+# ----------------------------------------------------------------------
+# 1.  File paths ––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+excel_rentals = "../data/london_rentals.xls"        # sheet “Raw data”
+csv_airbnb    = "../data/london_airbnb.csv"         # identical format to Paris file
+geojson_neigh = "../data/london_neighbourhoods.geojson"
 
-# =============================================================================
-# STEP 1: Get Neighborhood Geometries
-# =============================================================================
-use_fine_grid = True
+# ----------------------------------------------------------------------
+# 2.  Airbnb listings  ––––––––––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+df_airbnb = pd.read_csv(csv_airbnb, delimiter=",", encoding="utf-8")
 
-if use_fine_grid:
-    # Extract fine-grid neighborhoods from rentals data
-    df_neigh = df_rentals_initial.drop_duplicates(subset="Numéro du quartier")
-    df_neigh = df_neigh[["Numéro du quartier", "geo_shape"]]
-    print(f"Number of unique neighborhoods (fine grid): {len(df_neigh)}")
-    
-    # Rename and convert the GeoJSON geometry to Shapely objects
-    df_neigh.rename(columns={"Numéro du quartier": "neigh_id"}, inplace=True)
-    
-    def convert_geojson(geo_str):
-        try:
-            geo_dict = json.loads(geo_str)
-            return shape(geo_dict)
-        except Exception as e:
-            print("Error converting geometry:", e)
-            return None
-
-    df_neigh["geometry"] = df_neigh["geo_shape"].apply(convert_geojson)
-    gdf_neigh = gpd.GeoDataFrame(df_neigh, geometry="geometry", crs="EPSG:4326")
-else:
-    # Load neighborhoods from a GeoJSON file
-    gdf_neigh = gpd.read_file("../data/neighbourhoods.geojson")
-    gdf_neigh.rename(columns={"neighbourhood": "neigh_id"}, inplace=True)
-    gdf_neigh = gdf_neigh.drop_duplicates(subset="neigh_id")
-    gdf_neigh.set_crs("EPSG:4326", inplace=True)
-    print(f"Number of unique neighborhoods (GeoJSON): {len(gdf_neigh)}")
-
-# =============================================================================
-# STEP 2: Load Airbnb Listings and Compute Airbnb Density
-# =============================================================================
-df_airbnb = pd.read_csv("../data/paris_airbnb.csv", 
-                        delimiter=',', 
-                        on_bad_lines='skip', 
-                        encoding='utf-8')
-print(f"Original Airbnb data rows: {len(df_airbnb)}")
-print("Airbnb DataFrame shape:", df_airbnb.shape)
-print("Airbnb columns:", list(df_airbnb.columns))
-
-# Create point geometry from latitude (col index 6) and longitude (col index 7)
-def create_point(row):
-    if len(row) >= 8:
-        try:
-            lon, lat = row.iloc[7], row.iloc[6]
-            return Point(lon, lat)
-        except Exception as e:
-            print("Error creating point for row:", e)
-            return None
-    else:
-        return None
-
-df_airbnb['geometry'] = df_airbnb.apply(create_point, axis=1)
-df_airbnb = df_airbnb[df_airbnb['geometry'].notnull()]
-gdf_airbnb = gpd.GeoDataFrame(df_airbnb, geometry='geometry', crs="EPSG:4326")
-
-# Spatial join: assign Airbnb listings to neighborhoods
-gdf_airbnb_joined = gpd.sjoin(gdf_airbnb, gdf_neigh, how='left', predicate='within')
-airbnb_counts = gdf_airbnb_joined.groupby('neigh_id').size().reset_index(name='airbnb_count')
-gdf_neigh = gdf_neigh.merge(airbnb_counts, on='neigh_id', how='left')
-gdf_neigh['airbnb_count'] = gdf_neigh['airbnb_count'].fillna(0).astype(int)
-
-# Compute area in km² (project to EPSG:3857) and calculate density
-gdf_neigh['area_km2'] = gdf_neigh.to_crs(epsg=3857).area / 1e6
-gdf_neigh['airbnb_density'] = gdf_neigh['airbnb_count'] / gdf_neigh['area_km2']
-print(f"Total number of Airbnb listings in Paris: {len(gdf_airbnb)}")
-
-# Plot Airbnb density map
-fig, ax = plt.subplots(figsize=(10, 10))
-gdf_neigh.plot(column='airbnb_density', cmap='OrRd', legend=True, ax=ax, edgecolor='black')
-ax.set_title("Airbnb Density (listings per km²) by Neighborhood in Paris (2024)")
-plt.show()
-
-# =============================================================================
-# STEP 3: Compute Average Rental Prices for 2024 and 2019, Then Price Increase
-# =============================================================================
-# Filter rentals data for 2024 and 2019 (assuming first column is "year")
-df_rentals_2024 = df_rentals_initial[df_rentals_initial.iloc[:, 0] == 2024].copy()
-df_rentals_2019 = df_rentals_initial[df_rentals_initial.iloc[:, 0] == 2019].copy()
-
-def parse_coords(coord_str):
+def make_point(row):
     try:
-        lat_str, lon_str = coord_str.split(',')
-        lat = float(lat_str.strip())
-        lon = float(lon_str.strip())
+        lon, lat = row.iloc[7], row.iloc[6]          # same columns as Paris file
         return Point(lon, lat)
-    except Exception as e:
-        print("Error parsing coordinates:", e)
+    except Exception:
         return None
 
-df_rentals_2024['geometry'] = df_rentals_2024.iloc[:, 13].apply(parse_coords)
-df_rentals_2019['geometry'] = df_rentals_2019.iloc[:, 13].apply(parse_coords)
+df_airbnb["geometry"] = df_airbnb.apply(make_point, axis=1)
+df_airbnb = df_airbnb[df_airbnb["geometry"].notnull()]
+gdf_airbnb = gpd.GeoDataFrame(df_airbnb, geometry="geometry", crs="EPSG:4326")
 
-# Rental price is assumed to be in column index 7
-df_rentals_2024['rental_price'] = pd.to_numeric(df_rentals_2024.iloc[:, 7], errors='coerce')
-df_rentals_2019['rental_price'] = pd.to_numeric(df_rentals_2019.iloc[:, 7], errors='coerce')
+# ----------------------------------------------------------------------
+# 3.  Rentals (2011 vs 2019)  –––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+# Read sheet WITHOUT headers so we can use positional indices
+df_raw = pd.read_excel(excel_rentals, sheet_name="Raw data", header=None)
 
-df_rentals_2024 = df_rentals_2024[df_rentals_2024['geometry'].notnull() & df_rentals_2024['rental_price'].notnull()]
-df_rentals_2019 = df_rentals_2019[df_rentals_2019['geometry'].notnull() & df_rentals_2019['rental_price'].notnull()]
+# Rename the neighbourhood column (index 2 → “Neighbourhood”)
+name_col = 2
+df_raw.rename(columns={name_col: "Neighbourhood"}, inplace=True)
 
-gdf_rentals_2024 = gpd.GeoDataFrame(df_rentals_2024, geometry='geometry', crs="EPSG:4326")
-gdf_rentals_2019 = gpd.GeoDataFrame(df_rentals_2019, geometry='geometry', crs="EPSG:4326")
+# Filter: year, quarter, category
+df_filt = df_raw[
+    (df_raw.iloc[:, 0].isin([2011, 2019])) &      # year
+    (df_raw.iloc[:, 1] == "Q1") &                 # quarter
+    (df_raw.iloc[:, 4] == "All categories")       # category
+].copy()
 
-# Spatial join rentals to neighborhoods
-gdf_rentals_2024_joined = gpd.sjoin(gdf_rentals_2024, gdf_neigh, how='left', predicate='within')
-gdf_rentals_2019_joined = gpd.sjoin(gdf_rentals_2019, gdf_neigh, how='left', predicate='within')
+# Rental price in column 6
+df_filt["rental_price"] = pd.to_numeric(df_filt.iloc[:, 6], errors="coerce")
+df_filt = df_filt.dropna(subset=["Neighbourhood", "rental_price"])
 
-avg_prices_2024 = gdf_rentals_2024_joined.groupby('neigh_id')['rental_price'].mean().reset_index(name='avg_rental_price_2024')
-gdf_neigh = gdf_neigh.merge(avg_prices_2024, on='neigh_id', how='left')
-gdf_neigh['avg_rental_price_2024'] = gdf_neigh['avg_rental_price_2024'].fillna(0)
+# Average by neighbourhood & year
+avg_2011 = (
+    df_filt[df_filt.iloc[:, 0] == 2011]
+    .groupby("Neighbourhood")["rental_price"]
+    .mean()
+    .reset_index(name="avg_rental_price_2011")
+)
+avg_2019 = (
+    df_filt[df_filt.iloc[:, 0] == 2019]
+    .groupby("Neighbourhood")["rental_price"]
+    .mean()
+    .reset_index(name="avg_rental_price_2019")
+)
 
-avg_prices_2019 = gdf_rentals_2019_joined.groupby('neigh_id')['rental_price'].mean().reset_index(name='avg_rental_price_2019')
-gdf_neigh = gdf_neigh.merge(avg_prices_2019, on='neigh_id', how='left')
-gdf_neigh['avg_rental_price_2019'] = gdf_neigh['avg_rental_price_2019'].fillna(0)
+df_rentals = pd.merge(avg_2011, avg_2019, on="Neighbourhood", how="outer").fillna(0)
+df_rentals["price_increase"] = (
+    df_rentals["avg_rental_price_2019"] - df_rentals["avg_rental_price_2011"]
+)
 
-# Compute rental price increase (2024 - 2019)
-gdf_neigh['price_increase'] = gdf_neigh['avg_rental_price_2024'] - gdf_neigh['avg_rental_price_2019']
+# ----------------------------------------------------------------------
+# 4.  Neighbourhood polygons  –––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+gdf_neigh = gpd.read_file(geojson_neigh)
 
-# Plot rental price increase map
+# Standardise name column to “Neighbourhood”
+if "neighbourhood" in gdf_neigh.columns:
+    gdf_neigh.rename(columns={"neighbourhood": "Neighbourhood"}, inplace=True)
+
+# Merge rental attributes
+gdf_neigh = gdf_neigh.merge(df_rentals, on="Neighbourhood", how="left").fillna(0)
+
+# ----------------------------------------------------------------------
+# 5.  Airbnb density  –––––––––––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+gdf_joined = gpd.sjoin(gdf_airbnb, gdf_neigh, how="left", predicate="within")
+counts = gdf_joined.groupby("Neighbourhood").size().reset_index(name="airbnb_count")
+
+gdf_neigh = gdf_neigh.merge(counts, on="Neighbourhood", how="left")
+gdf_neigh["airbnb_count"] = gdf_neigh["airbnb_count"].fillna(0).astype(int)
+gdf_neigh["area_km2"] = gdf_neigh.to_crs(epsg=3857).area / 1e6
+gdf_neigh["airbnb_density"] = gdf_neigh["airbnb_count"] / gdf_neigh["area_km2"]
+
+print(f"Total Airbnb listings in London: {len(gdf_airbnb)}")
+
+# ----------------------------------------------------------------------
+# 6.  Maps  –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
 fig, ax = plt.subplots(figsize=(10, 10))
-gdf_neigh.plot(column='price_increase', cmap='Reds', legend=True, ax=ax, edgecolor='black')
-ax.set_title("Rental Price Increase (2024 vs. 2019) by Neighborhood in Paris")
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
+gdf_neigh.plot(column="airbnb_density", cmap="RdPu", legend=True, ax=ax, edgecolor="black")
+ax.set_title("Airbnb Density (listings / km²) – London (2024)")
 plt.show()
 
-# -------------------------------
-# Part A: Scatter Plot of Individual Points
-# -------------------------------
-fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
-ax_scatter.scatter(gdf_neigh['price_increase'], gdf_neigh['airbnb_density'], 
-                   alpha=0.7, edgecolors='w')
-ax_scatter.set_xlabel("Rental Price Increase (2024 - 2019) (€/m²)")
-ax_scatter.set_ylabel("Airbnb Density (listings per km²)")
-ax_scatter.set_title("Scatter Plot: Airbnb Density vs. Rental Price Increase")
+fig, ax = plt.subplots(figsize=(10, 10))
+gdf_neigh.plot(column="price_increase", cmap="YlOrRd", legend=True, ax=ax, edgecolor="black")
+ax.set_title("Rental Price Increase (2019 – 2011) – London")
+ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")
 plt.show()
 
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.scatter(gdf_neigh["price_increase"], gdf_neigh["airbnb_density"],
+           alpha=0.7, edgecolors="w")
+ax.set_xlabel("Rental Price Increase (2019 – 2011)")
+ax.set_ylabel("Airbnb Density (listings / km²)")
+ax.set_title("Airbnb Density vs Rental Price Increase – London")
+plt.show()
 
-# =============================================================================
-# STEP 4: Bias-Variance Analysis (Price Increase vs. Airbnb Density)
-# =============================================================================
-# Predictor: price_increase, Target: airbnb_density
-X = gdf_neigh['price_increase'].values.reshape(-1, 1)
-Y = gdf_neigh['airbnb_density'].values
-
-degrees = range(1, 6)  # Test polynomial degrees 1 through 5
+# ----------------------------------------------------------------------
+# 7.  Polynomial regression (degrees 1–5)  –––––––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+X = gdf_neigh["price_increase"].values.reshape(-1, 1)
+Y = gdf_neigh["airbnb_density"].values
+degrees = range(1, 6)
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
-cv_results_list = []
 
-for deg in degrees:
-    poly = PolynomialFeatures(degree=deg, include_bias=False)
-    X_poly = poly.fit_transform(X)
+results = []
+for d in degrees:
+    X_poly = PolynomialFeatures(d, include_bias=False).fit_transform(X)
     lr = LinearRegression()
-    cv_results = cross_validate(lr, X_poly, Y, cv=kf, scoring='neg_mean_squared_error', return_train_score=True)
-    train_mse = -np.mean(cv_results['train_score'])
-    test_mse = -np.mean(cv_results['test_score'])
-    cv_results_list.append({'degree': deg, 'train_mse': train_mse, 'test_mse': test_mse})
+    cv = cross_validate(lr, X_poly, Y, cv=kf,
+                        scoring="neg_mean_squared_error",
+                        return_train_score=True)
+    results.append({
+        "degree": d,
+        "train_mse": -cv["train_score"].mean(),
+        "test_mse":  -cv["test_score"].mean()
+    })
 
-cv_results_df = pd.DataFrame(cv_results_list)
-print(cv_results_df)
-
-# Plot Bias-Variance Trade-Off curves
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.plot(cv_results_df['degree'], cv_results_df['train_mse'], marker='o', label='Training MSE (Bias)')
-ax.plot(cv_results_df['degree'], cv_results_df['test_mse'], marker='o', label='Validation MSE (Variance)')
-ax.set_xlabel('Polynomial Degree')
-ax.set_ylabel('Mean Squared Error')
-ax.set_title('Bias-Variance Trade-Off (Price Increase vs. Airbnb Density)')
-ax.set_yscale('log')
-ax.legend()
-plt.show()
-
-# =============================================================================
-# STEP 6: Plot 2 - Best Polynomial Regression (Airbnb Density vs. Price Increase)
-# =============================================================================
-best_row = cv_results_df.loc[cv_results_df['test_mse'].idxmin()]
-best_deg = int(best_row['degree'])
-print(f"Best Polynomial Degree: {best_deg}")
-
-poly_best = PolynomialFeatures(degree=best_deg, include_bias=False)
-X_poly_best = poly_best.fit_transform(X)
-lr_best = LinearRegression()
-lr_best.fit(X_poly_best, Y)
-r2_best = lr_best.score(X_poly_best, Y)
-# Here R is approximated as sqrt(R²) (if the relationship is positive)
-r_best = np.sqrt(r2_best) if r2_best >= 0 else 0
-
-X_range = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
-X_range_poly = poly_best.transform(X_range)
-Y_pred = lr_best.predict(X_range_poly)
+cv_df = pd.DataFrame(results)
+print(cv_df)
 
 fig, ax = plt.subplots(figsize=(10, 6))
-ax.scatter(X, Y, alpha=0.7, edgecolors='w', label='Neighborhood Data')
-ax.plot(X_range, Y_pred, color='red', linestyle='--', 
-        label=f'Poly Regression (deg {best_deg}, R = {r_best:.2f})')
-ax.set_xlabel("Rental Price Increase (2024 - 2019) (€/m²)")
-ax.set_ylabel("Airbnb Density (listings per km²)")
-ax.set_title("Airbnb Density vs. Rental Price Increase with Polynomial Regression")
-ax.legend()
-plt.show()
+ax.plot(cv_df["degree"], cv_df["train_mse"], marker="o", label="Training MSE")
+ax.plot(cv_df["degree"], cv_df["test_mse"],  marker="o", label="Validation MSE")
+ax.set_xlabel("Polynomial degree"); ax.set_ylabel("MSE (log‐scale)")
+ax.set_yscale("log"); ax.set_title("Bias–Variance Trade‑Off")
+ax.legend(); plt.show()
 
-# =============================================================================
-# STEP 7: Plot 3 - Box Plot: Airbnb Density by Binned Rental Price Increase
-# =============================================================================
-num_bins = 5
-gdf_neigh['price_increase_bin'] = pd.qcut(gdf_neigh['price_increase'], q=num_bins, duplicates='drop')
+best_deg = cv_df.loc[cv_df["test_mse"].idxmin(), "degree"]
+print(f"Best degree = {best_deg}")
+
+# Fit and plot the chosen model
+poly = PolynomialFeatures(int(best_deg), include_bias=False)
+X_poly = poly.fit_transform(X)
+model = LinearRegression().fit(X_poly, Y)
+r2 = model.score(X_poly, Y)
+r = np.sqrt(r2) if r2 >= 0 else 0
+
+X_plot = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+Y_plot = model.predict(poly.transform(X_plot))
+
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.scatter(X, Y, alpha=0.7, edgecolors="w", label="Neighbourhoods")
+ax.plot(X_plot, Y_plot, "r--", label=f"Poly deg {best_deg}, R={r:.2f}")
+ax.set_xlabel("Rental Price Increase (2019 – 2011)")
+ax.set_ylabel("Airbnb Density (listings / km²)")
+ax.set_title("Polynomial Regression – London")
+ax.legend(); plt.show()
+
+# ----------------------------------------------------------------------
+# 8.  Binning and quadratic fit of bin medians  ––––––––––––––––––––––––
+# ----------------------------------------------------------------------
+gdf_neigh["price_bin"] = pd.qcut(gdf_neigh["price_increase"],
+                                 q=5, duplicates="drop")
 
 plt.figure(figsize=(12, 6))
-sns.boxplot(x='price_increase_bin', y='airbnb_density', data=gdf_neigh)
-plt.xlabel("Rental Price Increase (2024 - 2019) [€/m²] (Binned)")
-plt.ylabel("Airbnb Density (listings per km²)")
-plt.title("Distribution of Airbnb Density by Rental Price Increase Bins")
-plt.xticks(rotation=45)
-plt.show()
+sns.boxplot(x="price_bin", y="airbnb_density", data=gdf_neigh)
+plt.xlabel("Rental Price Increase (binned)"); plt.ylabel("Airbnb Density")
+plt.title("Airbnb Density by Price Increase Quintile – London")
+plt.xticks(rotation=45); plt.show()
 
+bin_stats = (
+    gdf_neigh.groupby("price_bin", observed=False)
+    .agg(price_increase=("price_increase", "mean"),
+         airbnb_density=("airbnb_density", "median"))
+    .reset_index()
+)
 
+Xb = bin_stats["price_increase"].values.reshape(-1, 1)
+yb = bin_stats["airbnb_density"].values
+poly2 = PolynomialFeatures(2, include_bias=False)
+model2 = LinearRegression().fit(poly2.fit_transform(Xb), yb)
 
-# -------------------------------
-# Part C (Médiane) : Calcul des médianes par bin et ajustement d'un polynôme de 2ème degré
-# -------------------------------
-# Calculer la médiane de l'augmentation de prix et la médiane de la densité Airbnb par bin
-bin_medians = gdf_neigh.groupby('price_increase_bin', observed=True).agg({
-    'price_increase': 'median', 
-    'airbnb_density': 'median'
-}).reset_index()
-print("Bin Medians:")
-print(bin_medians)
+X_curve = np.linspace(gdf_neigh["price_increase"].min(),
+                      gdf_neigh["price_increase"].max(), 100).reshape(-1, 1)
+y_curve = model2.predict(poly2.transform(X_curve))
 
-# Extraire les valeurs médianes pour x et y
-X_bin_median = bin_medians['price_increase'].values.reshape(-1, 1)
-Y_bin_median = bin_medians['airbnb_density'].values
-
-# Ajuster un polynôme de 2ème degré aux médianes par bin
-poly2 = PolynomialFeatures(degree=2, include_bias=False)
-X_bin_poly = poly2.fit_transform(X_bin_median)
-lr_poly2 = LinearRegression()
-lr_poly2.fit(X_bin_poly, Y_bin_median)
-
-# Générer une courbe de prédiction lisse avec le modèle ajusté
-X_range = np.linspace(X_bin_median.min(), X_bin_median.max(), 100).reshape(-1, 1)
-Y_range_pred = lr_poly2.predict(poly2.transform(X_range))
-
-# Afficher les médianes par bin et la courbe du polynôme ajusté
-fig_poly, ax_poly = plt.subplots(figsize=(10, 6))
-ax_poly.scatter(X_bin_median, Y_bin_median, color='blue', label='Médiane par Bin')
-ax_poly.plot(X_range, Y_range_pred, color='red', linestyle='--', label='Ajustement 2ème Degré')
-ax_poly.set_xlabel("Augmentation Médiane des Prix (2024 - 2019) (€/m²)")
-ax_poly.set_ylabel("Densité Médiane Airbnb (listings par km²)")
-ax_poly.set_title("Ajustement d'un polynôme de 2ème degré sur les médianes par bin")
-ax_poly.legend()
-plt.show()
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.scatter(Xb, yb, s=80, label="Bin medians")
+ax.plot(X_curve, y_curve, "r--", label="Quadratic fit")
+for edge in gdf_neigh["price_bin"].cat.categories.right[:-1]:
+    ax.axvline(edge, color="g", linestyle=":", alpha=0.5)
+ax.set_xlabel("Mean Rental Price Increase (2019 – 2011)")
+ax.set_ylabel("Median Airbnb Density (listings / km²)")
+ax.set_title("Quadratic Regression on Binned Data – London")
+ax.legend(); ax.grid(alpha=0.3); plt.tight_layout(); plt.show()
