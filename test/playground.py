@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 from shapely.geometry import shape, Point
 import json
 
-use_fine_grid = True
-
-if (use_fine_grid):
-    df_rentals_initial = pd.read_csv("../data/paris_rentals.csv", 
+df_rentals_initial = pd.read_csv("../data/paris_rentals.csv", 
                                      delimiter=';', 
                                      on_bad_lines='skip', 
                                      encoding='utf-8')
+
+use_fine_grid = True
+
+if (use_fine_grid):
     
     # Drop duplicates based on “Numéro du quartier”
     df_neigh = df_rentals_initial.drop_duplicates(subset="Numéro du quartier")
@@ -52,7 +53,9 @@ else:
     print(f"Number of unique neighborhoods: {len(gdf_neigh)}")
 
 
-
+# ---------------------------------------------------------------------------
+# Step 2: Load Airbnb Listings and Compute Airbnb Density by Neighborhood
+# ---------------------------------------------------------------------------
 
 df_airbnb = pd.read_csv("../data/paris_airbnb.csv", 
                         delimiter=',', 
@@ -102,7 +105,7 @@ plt.show()
 
 
 
-# Keep only rows where the first column == 2024
+# Keep only rows where the first column == 2024 & 2019
 df_rentals_2024 = df_rentals_initial[df_rentals_initial.iloc[:, 0] == 2024].copy()
 df_rentals_2019 = df_rentals_initial[df_rentals_initial.iloc[:, 0] == 2019].copy()
 
@@ -150,11 +153,11 @@ gdf_neigh['avg_rental_price_2019'] = gdf_neigh['avg_rental_price_2019'].fillna(0
 
 
 # -------------------------------
-# Step 5: Compute the Price Increase (2029 -> 2014)
+# Step 5: Compute the Price Increase (2019 -> 2024)
 # -------------------------------
 gdf_neigh['price_increase'] = gdf_neigh['avg_rental_price_2024'] - gdf_neigh['avg_rental_price_2019']
 
-# Plot the average rental price (2024)
+# Plot the average rental price increase
 fig2, ax2 = plt.subplots(figsize=(10, 10))
 gdf_neigh.plot(column='price_increase', cmap='RdYlGn', legend=True, ax=ax2, edgecolor='black')
 ax2.set_title("Rental Price Increase (2024 vs. 2019) by Neighborhood in Paris")
@@ -181,19 +184,23 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_validate, KFold
 
 
-# ------------------------
-# 1. Bias-Variance Analysis using Price Increase as Predictor
-# ------------------------
+# ---------------------------------------------------------------------------
+# Step 6: Bias-Variance Analysis Using Price Increase as Predictor
+# ---------------------------------------------------------------------------
+import numpy as np
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import cross_validate, KFold
+
 # Predictor x: price_increase, Target y: airbnb_density
 x = gdf_neigh['price_increase'].values.reshape(-1, 1)
 y = gdf_neigh['airbnb_density'].values
 
-degrees = range(1, 6)  # Evaluate polynomial degrees 1 to 7
+degrees = range(1, 6)  # Evaluate polynomial degrees 1 to 5 (or adjust as needed)
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 results = []
 
-# Loop over each polynomial degree to compute cross-validated MSEs
 for degree in degrees:
     poly_features = PolynomialFeatures(degree=degree, include_bias=False)
     x_poly = poly_features.fit_transform(x)
@@ -205,7 +212,7 @@ for degree in degrees:
         return_train_score=True
     )
     
-    # Convert negative MSE scores to positive values
+    # Convert negative MSE scores to positive
     train_mse = -np.mean(cv_results['train_score'])
     test_mse = -np.mean(cv_results['test_score'])
     
@@ -225,40 +232,51 @@ print(f"\nBest model: Degree {best_degree}")
 print(f"Train MSE (bias indicator): {best_model_row['train_mse']:.4f}")
 print(f"Validation MSE (overall error): {best_model_row['test_mse']:.4f}")
 
-# ------------------------
-# 2. Plot Bias-Variance Trade-Off
-# ------------------------
+# Plot the Bias-Variance Trade-Off
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.plot(results_df['degree'], results_df['train_mse'], marker='o', label='Training MSE (Bias)')
 ax.plot(results_df['degree'], results_df['test_mse'], marker='o', label='Validation MSE (Variance)')
 ax.set_xlabel('Polynomial Degree')
 ax.set_ylabel('Mean Squared Error')
 ax.set_title('Bias-Variance Trade-Off (Price Increase vs. Airbnb Density)')
+ax.set_yscale('log')
 ax.legend()
 plt.show()
 
-# ------------------------
-# 3. Fit and Plot the Best Degree Model
-# ------------------------
-# Fit the selected best model using the entire dataset
+# Fit and Plot the Best Degree Model
 poly_features_best = PolynomialFeatures(degree=best_degree, include_bias=False)
 x_poly_best = poly_features_best.fit_transform(x)
 best_model = LinearRegression()
 best_model.fit(x_poly_best, y)
 
-# Generate a smooth regression curve for plotting
 x_range = np.linspace(x.min(), x.max(), 100).reshape(-1, 1)
 x_range_poly = poly_features_best.transform(x_range)
 y_pred = best_model.predict(x_range_poly)
 
-# Create scatter plot with best-fit polynomial regression curve
 fig2, ax2 = plt.subplots(figsize=(10, 6))
 ax2.scatter(x, y, alpha=0.7, edgecolors='w', label='Neighborhood Data')
-ax2.plot(x_range, y_pred, color='red', linestyle='--',
-         label=f'Polynomial Regression (degree {best_degree})')
+ax2.plot(x_range, y_pred, color='red', linestyle='--', label=f'Polynomial Regression (degree {best_degree})')
 ax2.set_xlabel("Price Increase (2024 - 2019)")
 ax2.set_ylabel("Airbnb Density (listings per km²)")
 ax2.set_title("Best Polynomial Regression Fit: Airbnb Density vs. Price Increase")
 ax2.legend()
+plt.show()
 
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Create bins for price increase using quantiles; adjust the number of bins as needed.
+num_bins = 5
+gdf_neigh['price_increase_bin'] = pd.qcut(gdf_neigh['price_increase'], q=num_bins, duplicates='drop')
+
+# Plot the box plot of Airbnb density for each price increase bin.
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='price_increase_bin', y='airbnb_density', data=gdf_neigh)
+plt.xlabel("Rental Price Increase (2024 - 2019) [€/m²] (Binned)")
+plt.ylabel("Airbnb Density (listings per km²)")
+plt.title("Distribution of Airbnb Density by Rental Price Increase Bins")
+plt.xticks(rotation=45)
 plt.show()
