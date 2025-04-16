@@ -13,7 +13,7 @@ from scipy.stats import pearsonr
 # =============================================================================
 # STEP 0: Load Rentals Data (Always Needed)
 # =============================================================================
-df_rentals_initial = pd.read_csv("../data/paris_rentals.csv", 
+df_rentals_initial = pd.read_csv("../data/london_rentals.csv", 
                                  delimiter=';', 
                                  on_bad_lines='skip', 
                                  encoding='utf-8')
@@ -141,21 +141,10 @@ gdf_neigh['price_increase'] = gdf_neigh['avg_rental_price_2024'] - gdf_neigh['av
 
 # Plot rental price increase map
 fig, ax = plt.subplots(figsize=(10, 10))
-gdf_neigh.plot(column='price_increase', cmap='Reds', legend=True, ax=ax, edgecolor='black')
+gdf_neigh.plot(column='price_increase', cmap='RdYlGn', legend=True, ax=ax, edgecolor='black')
 ax.set_title("Rental Price Increase (2024 vs. 2019) by Neighborhood in Paris")
 ax.set_xlabel("Longitude")
 ax.set_ylabel("Latitude")
-plt.show()
-
-# -------------------------------
-# Part A: Scatter Plot of Individual Points
-# -------------------------------
-fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
-ax_scatter.scatter(gdf_neigh['price_increase'], gdf_neigh['airbnb_density'], 
-                   alpha=0.7, edgecolors='w')
-ax_scatter.set_xlabel("Rental Price Increase (2024 - 2019) (€/m²)")
-ax_scatter.set_ylabel("Airbnb Density (listings per km²)")
-ax_scatter.set_title("Scatter Plot: Airbnb Density vs. Rental Price Increase")
 plt.show()
 
 
@@ -234,41 +223,4 @@ plt.xlabel("Rental Price Increase (2024 - 2019) [€/m²] (Binned)")
 plt.ylabel("Airbnb Density (listings per km²)")
 plt.title("Distribution of Airbnb Density by Rental Price Increase Bins")
 plt.xticks(rotation=45)
-plt.show()
-
-
-
-# -------------------------------
-# Part C (Médiane) : Calcul des médianes par bin et ajustement d'un polynôme de 2ème degré
-# -------------------------------
-# Calculer la médiane de l'augmentation de prix et la médiane de la densité Airbnb par bin
-bin_medians = gdf_neigh.groupby('price_increase_bin', observed=True).agg({
-    'price_increase': 'median', 
-    'airbnb_density': 'median'
-}).reset_index()
-print("Bin Medians:")
-print(bin_medians)
-
-# Extraire les valeurs médianes pour x et y
-X_bin_median = bin_medians['price_increase'].values.reshape(-1, 1)
-Y_bin_median = bin_medians['airbnb_density'].values
-
-# Ajuster un polynôme de 2ème degré aux médianes par bin
-poly2 = PolynomialFeatures(degree=2, include_bias=False)
-X_bin_poly = poly2.fit_transform(X_bin_median)
-lr_poly2 = LinearRegression()
-lr_poly2.fit(X_bin_poly, Y_bin_median)
-
-# Générer une courbe de prédiction lisse avec le modèle ajusté
-X_range = np.linspace(X_bin_median.min(), X_bin_median.max(), 100).reshape(-1, 1)
-Y_range_pred = lr_poly2.predict(poly2.transform(X_range))
-
-# Afficher les médianes par bin et la courbe du polynôme ajusté
-fig_poly, ax_poly = plt.subplots(figsize=(10, 6))
-ax_poly.scatter(X_bin_median, Y_bin_median, color='blue', label='Médiane par Bin')
-ax_poly.plot(X_range, Y_range_pred, color='red', linestyle='--', label='Ajustement 2ème Degré')
-ax_poly.set_xlabel("Augmentation Médiane des Prix (2024 - 2019) (€/m²)")
-ax_poly.set_ylabel("Densité Médiane Airbnb (listings par km²)")
-ax_poly.set_title("Ajustement d'un polynôme de 2ème degré sur les médianes par bin")
-ax_poly.legend()
 plt.show()
