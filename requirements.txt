@@ -7,8 +7,6 @@ scikit-learn
 folium
 geopandas
 requests
-beautifulsoup4
 plotly
 tqdm
 notebook
-xlrd
