@@ -3,7 +3,8 @@
 ## Overview
 
 This repository contains a study exploring the relationship between short-term rental density (Airbnb listings of 2024) and potential increases in long-term rental prices for two major European cities: Paris and London.
-
+Paris : increase is in € per square meter
+London : increase is in £
 ![Airbnb Density Vs Price Change](res/box_plots.png)
 &nbsp;
 ## Environment Setup
