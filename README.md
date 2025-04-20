@@ -66,12 +66,12 @@ pip install -r requirements.txt
 3. From the Jupyter Notebook interface that opens in your browser, open the `main.ipynb` file to view and run the analysis.
 &nbsp;
 ## Repository Structure
-
+```text
 .
 ├── requirements.txt        # List of Python packages needed
 └── scripts/                # Folder containing analysis scripts and notebook
     └── main.ipynb          # The primary Jupyter notebook with code, commentary, and visualizations
-
+```
 * requirements.txt – List of Python packages needed for data gathering, analysis, and visualization.
 * scripts/ – Folder containing data processing scripts and the Jupyter notebook.
     * main.ipynb – The primary notebook with code, commentary, and visualizations.
