@@ -4,9 +4,10 @@ matplotlib
 seaborn
 jupyter
 scikit-learn
-folium
 geopandas
 requests
 plotly
 tqdm
 notebook
+shapely
+scipy
