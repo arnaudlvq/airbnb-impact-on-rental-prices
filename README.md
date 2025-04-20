@@ -7,9 +7,10 @@ This repository contains a study exploring the relationship between short-term r
 ![Airbnb Density Vs Price Change](res/box_plots.png)
 &nbsp;
 
-&nbsp;
-Paris : increase is in € per square meter
-London : increase is in £
+Paris : increase is in € per square meter
+
+London : increase is in £
+
 ## Environment Setup
 
 Choose the instructions relevant to your operating system.
