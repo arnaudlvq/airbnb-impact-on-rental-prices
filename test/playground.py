@@ -252,11 +252,11 @@ def plot_boxplot_comparison(paris_df, london_df):
     plt.tight_layout()
     return fig, axes
 
-def plot_quadratic_fit_comparison(paris_df, london_df):
-    """Plot quadratic fits on binned data for both cities with R² values"""
+def plot_quadratic_fit_comparison(paris_df, london_df, paris_best_deg, london_best_deg):
+    """Plot polynomial fits on binned data for both cities with R² values using best degree"""
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
-    # Paris quadratic fit
+    # Paris polynomial fit
     paris_bin_stats = paris_df.groupby('price_increase_bin', observed=False).agg({
         'price_increase': 'mean', 
         'airbnb_density': 'median'
@@ -265,7 +265,7 @@ def plot_quadratic_fit_comparison(paris_df, london_df):
     paris_X = paris_bin_stats['price_increase'].values.reshape(-1, 1)
     paris_y = paris_bin_stats['airbnb_density'].values
     
-    paris_poly = PolynomialFeatures(degree=2, include_bias=False)
+    paris_poly = PolynomialFeatures(degree=paris_best_deg, include_bias=False)
     paris_X_poly = paris_poly.fit_transform(paris_X)
     paris_model = LinearRegression()
     paris_model.fit(paris_X_poly, paris_y)
@@ -278,20 +278,20 @@ def plot_quadratic_fit_comparison(paris_df, london_df):
     paris_y_curve = paris_model.predict(paris_poly.transform(paris_X_curve))
     
     axes[0].scatter(paris_X, paris_y, color=PARIS_COLOR, s=80, label='Bin Medians')
-    axes[0].plot(paris_X_curve, paris_y_curve, color=PARIS_COLOR, linestyle='--', label='Quadratic Fit')
+    axes[0].plot(paris_X_curve, paris_y_curve, color=PARIS_COLOR, linestyle='--', label=f'Degree {paris_best_deg} Fit')
     
     # Add bin edge vertical lines for Paris
     paris_bin_edges = pd.unique(paris_df['price_increase_bin'].cat.categories.right.values[:-1])
     for edge in paris_bin_edges:
         axes[0].axvline(x=edge, color='gray', linestyle=':', alpha=0.5)
     
-    axes[0].set_title(f"Paris: Quadratic Regression on Binned Data (R² = {paris_r2:.3f})")
+    axes[0].set_title(f"Paris: Degree {paris_best_deg} Regression on Binned Data (R² = {paris_r2:.3f})")
     axes[0].set_xlabel("Mean Price Increase (2024 - 2019) (€/m²)")
     axes[0].set_ylabel("Median Airbnb Density (listings/km²)")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
-    # London quadratic fit
+    # London polynomial fit
     london_bin_stats = london_df.groupby('price_bin', observed=False).agg({
         'price_change': 'mean', 
         'airbnb_density': 'median'
@@ -300,7 +300,7 @@ def plot_quadratic_fit_comparison(paris_df, london_df):
     london_X = london_bin_stats['price_change'].values.reshape(-1, 1)
     london_y = london_bin_stats['airbnb_density'].values
     
-    london_poly = PolynomialFeatures(degree=2, include_bias=False)
+    london_poly = PolynomialFeatures(degree=london_best_deg, include_bias=False)
     london_X_poly = london_poly.fit_transform(london_X)
     london_model = LinearRegression()
     london_model.fit(london_X_poly, london_y)
@@ -313,14 +313,14 @@ def plot_quadratic_fit_comparison(paris_df, london_df):
     london_y_curve = london_model.predict(london_poly.transform(london_X_curve))
     
     axes[1].scatter(london_X, london_y, color=LONDON_COLOR, s=80, label='Bin Medians')
-    axes[1].plot(london_X_curve, london_y_curve, color=LONDON_COLOR, linestyle='--', label='Quadratic Fit')
+    axes[1].plot(london_X_curve, london_y_curve, color=LONDON_COLOR, linestyle='--', label=f'Degree {london_best_deg} Fit')
     
     # Add bin edge vertical lines for London
     london_bin_edges = pd.unique(london_df['price_bin'].cat.categories.right.values[:-1])
     for edge in london_bin_edges:
         axes[1].axvline(x=edge, color='gray', linestyle=':', alpha=0.5)
     
-    axes[1].set_title(f"London: Quadratic Regression on Binned Data (R² = {london_r2:.3f})")
+    axes[1].set_title(f"London: Degree {london_best_deg} Regression on Binned Data (R² = {london_r2:.3f})")
     axes[1].set_xlabel(f"Mean Price Change ({LONDON_END_YEAR}–{LONDON_START_YEAR})")
     axes[1].set_ylabel("Median Airbnb Density (listings/km²)")
     axes[1].legend()
